@@ -1,0 +1,16 @@
+secret_number <- RANDOM(0, 100)
+guess <- 0
+
+DISPLAY("Try to guess my secret number!")
+
+REPEAT UNTIL (guess = secret_number) {
+  guess <- INPUT("Guess:")
+
+  IF (guess > secret_number) {
+    DISPLAY("Nope! Lower.")
+  } ELSE {
+    DISPLAY("Try again, higher!")
+  }
+}
+
+DISPLAY("Yep! My secret number was", guess)
