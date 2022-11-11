@@ -1,0 +1,9 @@
+on: push
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup Zig
+        uses: goto-bus-stop/setup-zig@v2.0.1
+      - name: Run tests
+        run: zig build test -fstage1
