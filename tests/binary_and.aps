@@ -1,0 +1,16 @@
+ASSERT(TRUE AND TRUE)
+ASSERT((TRUE AND FALSE) = FALSE)
+ASSERT((FALSE AND TRUE) = FALSE)
+
+key <- 0
+
+PROCEDURE something() {
+	key <- 15
+	RETURN TRUE
+}
+
+ASSERT((FALSE AND (something())) = FALSE)
+ASSERT(key = 0)
+
+ASSERT(TRUE AND (something()))
+ASSERT(key = 15)
