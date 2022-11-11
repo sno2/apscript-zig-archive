@@ -1,0 +1,15 @@
+FOO <- 5
+bar <- FOO
+foo <- 23
+
+ASSERT(FOO = 5)
+ASSERT(bar = 5)
+ASSERT(foo = 23)
+
+FOO <- FOO
+bar <- foo
+foo <- 6
+
+ASSERT(FOO = 5)
+ASSERT(bar = 23)
+ASSERT(foo = 6)
