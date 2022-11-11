@@ -345,6 +345,20 @@ pub fn evalExpr(vm: *VM, value: E, exception: ExceptionRef) ?Value {
         .e_string => return Value{
             .v_string_ref = vm.buffer[value.span.start + 1 .. value.span.end - 1],
         },
+        .e_unary_neg => |data| {
+            const val = (vm.evalExpr(data.value, exception) orelse return null).toNumber(exception) orelse {
+                exception.span = value.span;
+                return null;
+            };
+            return Value.fromFloat(-val.v_number);
+        },
+        .e_unary_pos => |data| {
+            const val = (vm.evalExpr(data.value, exception) orelse return null).toNumber(exception) orelse {
+                exception.span = value.span;
+                return null;
+            };
+            return Value.fromFloat(val.v_number);
+        },
         // TODO: convert to 'inline' case once 'zig fmt' supports it
         .e_bin_add, .e_bin_sub, .e_bin_mul, .e_bin_div, .e_bin_mod => |data| {
             const n1 = switch (data.lhs.data) {
@@ -462,6 +476,32 @@ pub fn evalExpr(vm: *VM, value: E, exception: ExceptionRef) ?Value {
 
             return Value.fromBool(lhs.v_number < rhs.v_number);
         },
+        .e_bin_gte => |data| {
+            const lhs = (vm.evalExpr(data.lhs, exception) orelse return null).toNumber(exception) orelse {
+                exception.span = data.lhs.span;
+                return null;
+            };
+
+            const rhs = (vm.evalExpr(data.rhs, exception) orelse return null).toNumber(exception) orelse {
+                exception.span = data.rhs.span;
+                return null;
+            };
+
+            return Value.fromBool(lhs.v_number >= rhs.v_number);
+        },
+        .e_bin_lte => |data| {
+            const lhs = (vm.evalExpr(data.lhs, exception) orelse return null).toNumber(exception) orelse {
+                exception.span = data.lhs.span;
+                return null;
+            };
+
+            const rhs = (vm.evalExpr(data.rhs, exception) orelse return null).toNumber(exception) orelse {
+                exception.span = data.rhs.span;
+                return null;
+            };
+
+            return Value.fromBool(lhs.v_number <= rhs.v_number);
+        },
         .e_bin_and => |data| {
             const lhs = (vm.evalExpr(data.lhs, exception) orelse return null).toBool(exception) orelse {
                 exception.span = data.lhs.span;
@@ -574,7 +614,6 @@ pub fn evalExpr(vm: *VM, value: E, exception: ExceptionRef) ?Value {
 
             return Value{ .v_array = items };
         },
-        else => @panic("."),
     }
 }
 

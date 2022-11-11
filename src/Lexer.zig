@@ -261,12 +261,21 @@ pub fn next(lex: *Lexer) void {
                     lex.step();
                     lex.token = .t_assign;
                 },
+                '=' => {
+                    lex.step();
+                    lex.token = .t_lte;
+                },
                 else => lex.token = .t_lt,
             }
         },
         '>' => {
             lex.step();
-            lex.token = .t_gt;
+            if (lex.codepoint == '=') {
+                lex.step();
+                lex.token = .t_gte;
+            } else {
+                lex.token = .t_gt;
+            }
         },
         '=' => {
             lex.step();
