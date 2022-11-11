@@ -13,6 +13,43 @@ lex: Lexer,
 scratch_exprs: std.MultiArrayList(E) = .{},
 statements: std.MultiArrayList(S) = .{},
 lbp: u8 = 0,
+errors: std.ArrayListUnmanaged(Error) = .{},
+
+pub const Error = struct {
+    span: Span,
+    data: union(enum) {
+        expected_token: struct {
+            expected: T,
+            got: T,
+        },
+    },
+    context: union(enum) {
+        none: void,
+        expr: E.Tag,
+        stmt: S.Tag,
+    } = .{ .none = {} },
+
+    pub fn format(self: Error, writer: anytype) !void {
+        switch (self.data) {
+            .expected_token => |data| try writer.print("Expected {s} but found {s}", .{ data.expected.symbol(), data.got.symbol() }),
+        }
+        if (self.context != .none) {
+            switch (self.context) {
+                .stmt => |tag| try writer.print(" for parsing {s}", .{S.symbol(tag)}),
+                .expr => |tag| try writer.print(" for parsing {s}", .{E.symbol(tag)}),
+                else => @panic("."),
+            }
+        }
+        try writer.writeAll(".\n");
+    }
+};
+
+const ParseError = error{ParseError};
+
+pub fn fail(p: *Parser, e: Error) !void {
+    p.errors.append(p.allocator, e) catch unreachable;
+    return error.ParseError;
+}
 
 pub fn init(allocator: std.mem.Allocator, input: []const u8) Parser {
     return .{
@@ -22,7 +59,7 @@ pub fn init(allocator: std.mem.Allocator, input: []const u8) Parser {
 }
 
 /// Null-denotion Pratt Parser implementation.
-inline fn nud(p: *Parser) E {
+inline fn nud(p: *Parser) !E {
     switch (p.lex.token) {
         .t_string => return p.parsePrimaryExpr(.e_string),
         .t_number => return p.parsePrimaryExpr(.e_number),
@@ -35,8 +72,8 @@ inline fn nud(p: *Parser) E {
             const span = .{ .start = p.lex.start, .end = p.lex.offset };
             p.lex.next();
             var value = p.allocator.alloc(E.Data.UnaryOp, 1) catch unreachable;
-            value[0] = .{ .value = p.parseExpr() };
-            return .{
+            value[0] = .{ .value = try p.parseExpr() };
+            return E{
                 .span = span,
                 .data = .{ .e_unary_pos = &value[0] },
             };
@@ -46,8 +83,8 @@ inline fn nud(p: *Parser) E {
             const span = .{ .start = p.lex.start, .end = p.lex.offset };
             p.lex.next();
             var value = p.allocator.alloc(E.Data.UnaryOp, 1) catch unreachable;
-            value[0] = .{ .value = p.parseExpr() };
-            return .{
+            value[0] = .{ .value = try p.parseExpr() };
+            return E{
                 .span = span,
                 .data = .{ .e_unary_neg = &value[0] },
             };
@@ -61,14 +98,14 @@ fn adjustBinding(p: *Parser) void {
 }
 
 /// Assumes the `foo(` has already been parsed.
-inline fn parseFnCallBody(p: *Parser) []E {
+inline fn parseFnCallBody(p: *Parser) ![]E {
     var arguments = std.ArrayListUnmanaged(E){};
 
     while (true) {
         switch (p.lex.token) {
             .t_rparen => break,
             else => {
-                arguments.append(p.allocator, p.parseExpr()) catch unreachable;
+                arguments.append(p.allocator, try p.parseExpr()) catch unreachable;
                 switch (p.lex.token) {
                     .t_comma => p.lex.next(),
                     else => break,
@@ -77,57 +114,63 @@ inline fn parseFnCallBody(p: *Parser) []E {
         }
     }
 
-    if (p.lex.token != .t_rparen) @panic("Expected closing parenthesis for function call.");
+    if (p.lex.token != .t_rparen) {
+        try p.fail(.{
+            .span = p.lex.span(),
+            .data = .{ .expected_token = .{ .expected = .t_rparen, .got = p.lex.token } },
+            .context = .{ .expr = .e_fn_call },
+        });
+    }
     p.lex.next();
 
     return arguments.toOwnedSlice(p.allocator);
 }
 
 /// Parses a primary expression (ident, function call, number, string, array literal).
-inline fn parsePrimaryExpr(p: *Parser, comptime known_e: E.Tag) E {
+inline fn parsePrimaryExpr(p: *Parser, comptime known_e: E.Tag) !E {
     switch (comptime known_e) {
         .e_true => {
             const span = p.lex.span();
             p.lex.next();
-            return .{ .span = span, .data = .{ .e_true = {} } };
+            return E{ .span = span, .data = .{ .e_true = {} } };
         },
         .e_false => {
             const span = p.lex.span();
             p.lex.next();
-            return .{ .span = span, .data = .{ .e_false = {} } };
+            return E{ .span = span, .data = .{ .e_false = {} } };
         },
         .e_number => {
             const span = p.lex.span();
             p.lex.next();
-            return .{ .span = span, .data = .{ .e_number = {} } };
+            return E{ .span = span, .data = .{ .e_number = {} } };
         },
         .e_string => {
             const span = p.lex.span();
             p.lex.next();
-            return .{ .span = span, .data = .{ .e_string = {} } };
+            return E{ .span = span, .data = .{ .e_string = {} } };
         },
         .e_ident => {
             const ident = p.lex.span();
             p.lex.next();
 
-            if (p.lex.token != .t_lparen) return .{
+            if (p.lex.token != .t_lparen) return E{
                 .span = ident,
                 .data = .{ .e_ident = {} },
             };
             p.lex.next();
 
             var data = p.allocator.alloc(E.Data.FnCall, 1) catch unreachable;
-            data[0] = .{ .name = ident, .arguments = p.parseFnCallBody() };
+            data[0] = .{ .name = ident, .arguments = try p.parseFnCallBody() };
 
-            return .{ .span = .{ .start = ident.start, .end = p.lex.start }, .data = .{ .e_fn_call = &data[0] } };
+            return E{ .span = .{ .start = ident.start, .end = p.lex.start }, .data = .{ .e_fn_call = &data[0] } };
         },
         .e_fn_call => {
             const ident = p.lex.span();
 
             var data = p.allocator.alloc(E.Data.FnCall, 1) catch unreachable;
-            data[0] = .{ .name = ident, .arguments = p.parseFnCallBody() };
+            data[0] = .{ .name = ident, .arguments = try p.parseFnCallBody() };
 
-            return .{ .span = .{ .start = ident.start, .end = p.lex.start }, .data = .{ .e_fn_call = &data[0] } };
+            return E{ .span = .{ .start = ident.start, .end = p.lex.start }, .data = .{ .e_fn_call = &data[0] } };
         },
         .e_array => {
             const start = p.lex.start;
@@ -135,7 +178,7 @@ inline fn parsePrimaryExpr(p: *Parser, comptime known_e: E.Tag) E {
 
             var values = std.ArrayListUnmanaged(E){};
             while (p.lex.token != .t_rbrack) {
-                values.append(p.allocator, p.parseExpr()) catch unreachable;
+                values.append(p.allocator, try p.parseExpr()) catch unreachable;
                 switch (p.lex.token) {
                     .t_comma => p.lex.next(),
                     .t_rbrack => break,
@@ -147,7 +190,7 @@ inline fn parsePrimaryExpr(p: *Parser, comptime known_e: E.Tag) E {
             var data = p.allocator.alloc(E.Data.Array, 1) catch unreachable;
             data[0] = .{ .values = values.toOwnedSlice(p.allocator) };
 
-            return .{
+            return E{
                 .span = .{ .start = start, .end = p.lex.start },
                 .data = .{ .e_array = &data[0] },
             };
@@ -162,12 +205,12 @@ const Denotation = enum {
 };
 
 /// Left-denotation Pratt Parser implementation.
-inline fn led(p: *Parser, lhs: E) ?E {
+inline fn led(p: *Parser, lhs: E) !?E {
     switch (p.lex.token) {
         .t_plus => {
             p.adjustBinding();
             p.lex.next();
-            const rhs = p.parseExpr();
+            const rhs = try p.parseExpr();
             var value = p.allocator.alloc(E.Data.BinaryOp, 1) catch unreachable;
             value[0] = .{ .lhs = lhs, .rhs = rhs };
             return E{
@@ -178,7 +221,7 @@ inline fn led(p: *Parser, lhs: E) ?E {
         .t_minus => {
             p.adjustBinding();
             p.lex.next();
-            const rhs = p.parseExpr();
+            const rhs = try p.parseExpr();
             var value = p.allocator.alloc(E.Data.BinaryOp, 1) catch unreachable;
             value[0] = .{ .lhs = lhs, .rhs = rhs };
             return E{
@@ -189,7 +232,7 @@ inline fn led(p: *Parser, lhs: E) ?E {
         .t_asterisk => {
             p.adjustBinding();
             p.lex.next();
-            const rhs = p.parseExpr();
+            const rhs = try p.parseExpr();
             var value = p.allocator.alloc(E.Data.BinaryOp, 1) catch unreachable;
             value[0] = .{ .lhs = lhs, .rhs = rhs };
             return E{
@@ -200,7 +243,7 @@ inline fn led(p: *Parser, lhs: E) ?E {
         .t_slash => {
             p.adjustBinding();
             p.lex.next();
-            const rhs = p.parseExpr();
+            const rhs = try p.parseExpr();
             var value = p.allocator.alloc(E.Data.BinaryOp, 1) catch unreachable;
             value[0] = .{ .lhs = lhs, .rhs = rhs };
             return E{
@@ -211,7 +254,7 @@ inline fn led(p: *Parser, lhs: E) ?E {
         .t_mod => {
             p.adjustBinding();
             p.lex.next();
-            const rhs = p.parseExpr();
+            const rhs = try p.parseExpr();
             var value = p.allocator.alloc(E.Data.BinaryOp, 1) catch unreachable;
             value[0] = .{ .lhs = lhs, .rhs = rhs };
             return E{
@@ -222,7 +265,7 @@ inline fn led(p: *Parser, lhs: E) ?E {
         .t_eq => {
             p.adjustBinding();
             p.lex.next();
-            const rhs = p.parseExpr();
+            const rhs = try p.parseExpr();
             var value = p.allocator.alloc(E.Data.BinaryOp, 1) catch unreachable;
             value[0] = .{ .lhs = lhs, .rhs = rhs };
             return E{
@@ -233,7 +276,7 @@ inline fn led(p: *Parser, lhs: E) ?E {
         .t_neq => {
             p.adjustBinding();
             p.lex.next();
-            const rhs = p.parseExpr();
+            const rhs = try p.parseExpr();
             var value = p.allocator.alloc(E.Data.BinaryOp, 1) catch unreachable;
             value[0] = .{ .lhs = lhs, .rhs = rhs };
             return E{
@@ -244,7 +287,7 @@ inline fn led(p: *Parser, lhs: E) ?E {
         .t_gt => {
             p.adjustBinding();
             p.lex.next();
-            const rhs = p.parseExpr();
+            const rhs = try p.parseExpr();
             var value = p.allocator.alloc(E.Data.BinaryOp, 1) catch unreachable;
             value[0] = .{ .lhs = lhs, .rhs = rhs };
             return E{
@@ -255,7 +298,7 @@ inline fn led(p: *Parser, lhs: E) ?E {
         .t_lt => {
             p.adjustBinding();
             p.lex.next();
-            const rhs = p.parseExpr();
+            const rhs = try p.parseExpr();
             var value = p.allocator.alloc(E.Data.BinaryOp, 1) catch unreachable;
             value[0] = .{ .lhs = lhs, .rhs = rhs };
             return E{
@@ -266,7 +309,7 @@ inline fn led(p: *Parser, lhs: E) ?E {
         .t_gte => {
             p.adjustBinding();
             p.lex.next();
-            const rhs = p.parseExpr();
+            const rhs = try p.parseExpr();
             var value = p.allocator.alloc(E.Data.BinaryOp, 1) catch unreachable;
             value[0] = .{ .lhs = lhs, .rhs = rhs };
             return E{
@@ -277,7 +320,7 @@ inline fn led(p: *Parser, lhs: E) ?E {
         .t_lte => {
             p.adjustBinding();
             p.lex.next();
-            const rhs = p.parseExpr();
+            const rhs = try p.parseExpr();
             var value = p.allocator.alloc(E.Data.BinaryOp, 1) catch unreachable;
             value[0] = .{ .lhs = lhs, .rhs = rhs };
             return E{
@@ -289,16 +332,16 @@ inline fn led(p: *Parser, lhs: E) ?E {
     }
 }
 
-pub fn parseExpr(p: *Parser) E {
-    var lhs = p.nud();
+pub fn parseExpr(p: *Parser) ParseError!E {
+    var lhs = try p.nud();
     while (p.lex.token.lbp() != 255) {
-        lhs = p.led(lhs) orelse break;
+        lhs = (try p.led(lhs)) orelse break;
     }
     p.lbp = 0;
     return lhs;
 }
 
-pub fn parseStatement(p: *Parser, comptime start_token: T) S {
+pub fn parseStatement(p: *Parser, comptime start_token: T) !S {
     switch (comptime start_token) {
         .t_ident => {
             const ident = p.lex.span();
@@ -310,20 +353,20 @@ pub fn parseStatement(p: *Parser, comptime start_token: T) S {
                         fn_call: E.Data.FnCall,
                         expr: E,
                     }, 1) catch unreachable;
-                    data[0].fn_call = .{ .name = ident, .arguments = p.parseFnCallBody() };
+                    data[0].fn_call = .{ .name = ident, .arguments = try p.parseFnCallBody() };
                     data[0].expr = .{
                         .span = .{ .start = ident.start, .end = p.lex.start },
                         .data = .{ .e_fn_call = &data[0].fn_call },
                     };
 
-                    return .{ .span = .{ .start = ident.start, .end = p.lex.start }, .data = .{ .s_expr = &data[0].expr } };
+                    return S{ .span = .{ .start = ident.start, .end = p.lex.start }, .data = .{ .s_expr = &data[0].expr } };
                 },
                 .t_assign => {
                     p.lex.next();
-                    const value = p.parseExpr();
+                    const value = try p.parseExpr();
                     const data = p.allocator.alloc(S.Data.Assign, 1) catch unreachable;
                     data[0] = .{ .name = ident, .value = value };
-                    return .{
+                    return S{
                         .span = .{ .start = ident.start, .end = value.span.end },
                         .data = .{ .s_assign = &data[0] },
                     };
@@ -334,10 +377,10 @@ pub fn parseStatement(p: *Parser, comptime start_token: T) S {
         .t_return => {
             const start = p.lex.start;
             p.lex.next();
-            const e = p.parseExpr();
+            const e = try p.parseExpr();
             const data = p.allocator.alloc(S.Data.Return, 1) catch unreachable;
             data[0] = .{ .value = e };
-            return .{
+            return S{
                 .span = .{ .start = start, .end = e.span.end },
                 .data = .{ .s_return = &data[0] },
             };
@@ -381,7 +424,7 @@ pub fn parseStatement(p: *Parser, comptime start_token: T) S {
             }
             p.lex.next();
 
-            const scope = p.parseScope(false);
+            const scope = try p.parseScope(false);
 
             if (p.lex.token != .t_rbrace) {
                 @panic("Expected a clsoing curly brace to end the procedure body.");
@@ -391,7 +434,7 @@ pub fn parseStatement(p: *Parser, comptime start_token: T) S {
             const data = p.allocator.alloc(S.Data.Procedure, 1) catch unreachable;
             data[0] = .{ .name = name, .arguments = arguments.toOwnedSlice(p.allocator), .scope = scope };
 
-            return .{
+            return S{
                 .span = .{ .start = start, .end = p.lex.start },
                 .data = .{ .s_procedure = &data[0] },
             };
@@ -405,7 +448,7 @@ pub fn parseStatement(p: *Parser, comptime start_token: T) S {
             }
             p.lex.next();
 
-            const condition = p.parseExpr();
+            const condition = try p.parseExpr();
 
             if (p.lex.token != .t_rparen) {
                 @panic("Expected a closing parenthesis for the if statement condition.");
@@ -417,7 +460,7 @@ pub fn parseStatement(p: *Parser, comptime start_token: T) S {
             }
             p.lex.next();
 
-            const scope = p.parseScope(false);
+            const scope = try p.parseScope(false);
 
             if (p.lex.token != .t_rbrace) {
                 @panic("Expected a closing curly brace for the if statement body.");
@@ -432,7 +475,7 @@ pub fn parseStatement(p: *Parser, comptime start_token: T) S {
 
                     if (p.lex.token != .t_lbrace) @panic(".");
                     p.lex.next();
-                    const inner = p.parseScope(false);
+                    const inner = try p.parseScope(false);
                     if (p.lex.token != .t_rbrace) @panic(".");
                     const end = p.lex.offset;
                     p.lex.next();
@@ -464,7 +507,7 @@ pub fn parseStatement(p: *Parser, comptime start_token: T) S {
                 if (p.lex.token != .t_lparen) @panic(".");
                 p.lex.next();
 
-                const condition = p.parseExpr();
+                const condition = try p.parseExpr();
 
                 if (p.lex.token != .t_rparen) @panic(".");
                 p.lex.next();
@@ -472,7 +515,7 @@ pub fn parseStatement(p: *Parser, comptime start_token: T) S {
                 if (p.lex.token != .t_lbrace) @panic(".");
                 p.lex.next();
 
-                const scope = p.parseScope(false);
+                const scope = try p.parseScope(false);
 
                 if (p.lex.token != .t_rbrace) @panic(".");
                 const end = p.lex.offset;
@@ -487,7 +530,7 @@ pub fn parseStatement(p: *Parser, comptime start_token: T) S {
                 };
             }
 
-            const count = p.parseExpr();
+            const count = try p.parseExpr();
 
             if (p.lex.token != .t_times) @panic(".");
             p.lex.next();
@@ -495,7 +538,7 @@ pub fn parseStatement(p: *Parser, comptime start_token: T) S {
             if (p.lex.token != .t_lbrace) @panic(".");
             p.lex.next();
 
-            const scope = p.parseScope(false);
+            const scope = try p.parseScope(false);
 
             if (p.lex.token != .t_rbrace) @panic(".");
             const end = p.lex.offset;
@@ -513,28 +556,28 @@ pub fn parseStatement(p: *Parser, comptime start_token: T) S {
     }
 }
 
-pub fn parseScope(p: *Parser, is_top_level: bool) []S {
+pub fn parseScope(p: *Parser, is_top_level: bool) ParseError![]S {
     var statements = std.ArrayListUnmanaged(S){};
 
     while (true) {
         statements.append(p.allocator, switch (p.lex.token) {
-            .t_ident => p.parseStatement(.t_ident),
-            .t_number => p.parseStatement(.t_number),
-            .t_string => p.parseStatement(.t_string),
+            .t_ident => try p.parseStatement(.t_ident),
+            .t_number => try p.parseStatement(.t_number),
+            .t_string => try p.parseStatement(.t_string),
             .t_return => blk: {
                 if (is_top_level) {
                     @panic("Invalid return statement.");
                 }
-                break :blk p.parseStatement(.t_return);
+                break :blk try p.parseStatement(.t_return);
             },
             .t_procedure => blk: {
                 if (!is_top_level) {
                     @panic("Invalid procedure statement.");
                 }
-                break :blk p.parseStatement(.t_procedure);
+                break :blk try p.parseStatement(.t_procedure);
             },
-            .t_if => p.parseStatement(.t_if),
-            .t_repeat => p.parseStatement(.t_repeat),
+            .t_if => try p.parseStatement(.t_if),
+            .t_repeat => try p.parseStatement(.t_repeat),
             .t_rbrace => if (!is_top_level) break else std.debug.panic("Unsupported: {}\n", .{p.lex.token}),
             .t_eof => break,
             else => |t| std.debug.panic("Unsupported: {}\n", .{t}),

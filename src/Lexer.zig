@@ -68,6 +68,51 @@ pub const T = enum {
     t_string,
     t_bad_string,
 
+    pub fn symbol(self: T) []const u8 {
+        return switch (self) {
+            .t_eof => "the end of the file",
+            .t_ident => "an identifier",
+            .t_func => "a function call token",
+            .t_eq => "an equal sign '='",
+            .t_neq => "a not equal sign '!='",
+            .t_lt => "a less than sign '<'",
+            .t_gt => "a greater than sign '>'",
+            .t_lte => "a less than or equal to sign '<='",
+            .t_gte => "a greater to or equal to sign '>='",
+            .t_not => "the negation symbol",
+            .t_and => "the and symbol",
+            .t_or => "the or symbol",
+            .t_if => "the if keyword",
+            .t_else => "the else keyword",
+            .t_repeat => "the repeat keyword",
+            .t_times => "the times keyword",
+            .t_until => "the until keyword",
+            .t_lbrack => "an opening bracket '['",
+            .t_rbrack => "a closing bracket ']'",
+            .t_lparen => "an opening parenthesis '('",
+            .t_rparen => "a closing parenthesis ')'",
+            .t_lbrace => "an opening bracket '['",
+            .t_rbrace => "a closing bracket ']'",
+            .t_comma => "a comma ','",
+            .t_assign => "an assignment token '->'",
+            .t_minus => "a minus sign '-'",
+            .t_plus => "a plus sign '+'",
+            .t_asterisk => "an asterisk '*'",
+            .t_slash => "a slash '/'",
+            .t_mod => "a modulus sign",
+            .t_for => "the for keyword",
+            .t_each => "the each keyword",
+            .t_in => "the in keyword",
+            .t_procedure => "the procedure keyword",
+            .t_return => "the return keyword",
+            .t_true => "the true keyword",
+            .t_false => "the false keyword",
+            .t_number => "a number",
+            .t_string => "a string literal",
+            .t_bad_string => "a non-terminating string",
+        };
+    }
+
     /// The token's left bindings power.
     pub fn lbp(self: T) u8 {
         return switch (self) {

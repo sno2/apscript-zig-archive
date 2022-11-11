@@ -11,6 +11,20 @@ pub const S = struct {
     span: Span,
     data: Data,
 
+    pub const Tag = std.meta.Tag(Data);
+
+    pub fn symbol(tag: Tag) []const u8 {
+        return switch (tag) {
+            .s_assign => "an assignment statement",
+            .s_expr => "an expression statement",
+            .s_procedure => "a procedure statement",
+            .s_return => "a return statement",
+            .s_if => "an if statement",
+            .s_repeat_n => "a repeat statement",
+            .s_repeat_until => "a repeat until statement",
+        };
+    }
+
     pub const Data = union(enum) {
         s_assign: *Assign,
         s_expr: *E,
@@ -64,32 +78,36 @@ pub const E = struct {
     span: Span,
     data: Data,
 
-    pub const Tag = enum(u8) {
-        e_bin_add,
-        e_bin_sub,
-        e_bin_mul,
-        e_bin_div,
-        e_bin_mod,
-        e_bin_eq,
-        e_bin_neq,
-        e_bin_gt,
-        e_bin_lt,
-        e_bin_gte,
-        e_bin_lte,
+    pub const Tag = std.meta.Tag(Data);
 
-        e_unary_pos,
-        e_unary_neg,
+    pub fn symbol(tag: Tag) []const u8 {
+        return switch (tag) {
+            .e_bin_add => "an addition operation",
+            .e_bin_sub => "a subtraction operation",
+            .e_bin_mul => "a multiplication operation",
+            .e_bin_div => "a division operation",
+            .e_bin_mod => "a modulus operation",
+            .e_bin_eq => "an equals operation",
+            .e_bin_neq => "a not equals operation",
+            .e_bin_gt => "a greater than operation",
+            .e_bin_lt => "a less than operation",
+            .e_bin_gte => "a greater than or equal to operation",
+            .e_bin_lte => "a less than or equal to operation",
 
-        e_fn_call,
-        e_ident,
-        e_array,
-        e_number,
-        e_string,
-        e_true,
-        e_false,
-    };
+            .e_unary_pos => "a positive expression",
+            .e_unary_neg => "a negation expression",
 
-    pub const Data = union(Tag) {
+            .e_fn_call => "a function call",
+            .e_ident => "an identifier",
+            .e_array => "an array literal",
+            .e_number => "a number literal",
+            .e_string => "a string literal",
+            .e_true => "true",
+            .e_false => "false",
+        };
+    }
+
+    pub const Data = union(enum) {
         e_bin_add: *BinaryOp,
         e_bin_sub: *BinaryOp,
         e_bin_mul: *BinaryOp,
