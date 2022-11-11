@@ -1,0 +1,23 @@
+ASSERT(5 < 23)
+ASSERT(22.9 < 23)
+ASSERT((-5) < 0)
+ASSERT((-5) < 5)
+ASSERT((0 < 0) = FALSE)
+
+ASSERT(5 <= 23)
+ASSERT(22.9 <= 23)
+ASSERT((-5) <= 0)
+ASSERT((-5) <= 5)
+ASSERT(0 <= 0)
+
+ASSERT(23 > 5)
+ASSERT(23 > 22.9)
+ASSERT(5 > (-5))
+ASSERT(0 > (-5))
+ASSERT((0 > 0) = FALSE)
+
+ASSERT(23 >= 5)
+ASSERT(23 >= 22.9)
+ASSERT(5 >= (-5))
+ASSERT(0 >= (-5))
+ASSERT(0 >= 0)
