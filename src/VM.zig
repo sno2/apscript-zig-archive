@@ -23,7 +23,7 @@ pub const Value = union(Tag) {
             .v_array => |arr| {
                 try writer.writeAll("[");
 
-                if (arr.len > 1) {
+                if (arr.len > 0) {
                     for (arr[0 .. arr.len - 1]) |itm| {
                         itm.format(writer, vm) catch unreachable;
                         try writer.writeAll(", ");
