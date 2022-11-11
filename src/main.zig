@@ -13,13 +13,13 @@ pub fn main() !void {
     var arg_iter = std.process.ArgIterator.initWithAllocator(allocator) catch unreachable;
 
     _ = arg_iter.next() orelse {};
-    const path = if (arg_iter.next()) |path| path else {
+    const path = arg_iter.next() orelse {
         @panic("Expected a file path.");
     };
 
     const path_full = std.fs.path.resolve(allocator, &.{path}) catch unreachable;
     const file = std.fs.openFileAbsolute(path_full, .{}) catch |e| {
-        std.log.err("Failed to open file: {}", .{e});
+        std.log.err("Failed to open file '{s}': {}", .{ path_full, e });
         std.process.exit(1);
     };
     const input = file.readToEndAlloc(allocator, 4096) catch unreachable;
