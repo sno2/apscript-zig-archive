@@ -30,7 +30,7 @@ pub fn main() !void {
         for (p.errors.items) |e| {
             try stderr_writer.writeAll("error: ");
             try e.format(stderr_writer);
-            try stderr_writer.print("\n    -> {s}\n", .{input[e.span.start..e.span.end]});
+            try stderr_writer.print("    -> {s}\n", .{input[e.span.start..e.span.end]});
         }
         std.process.exit(1);
     };

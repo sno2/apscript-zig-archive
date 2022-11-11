@@ -21,6 +21,8 @@ pub const Error = struct {
     context: ?Context = null,
 
     pub const Data = union(enum) {
+        invalid_return_outside_of_procedure,
+        invalid_procedure_not_top_level,
         expected_token: struct {
             expected: T,
             got: T,
@@ -57,6 +59,8 @@ pub const Error = struct {
     pub fn format(self: Error, writer: anytype) !void {
         switch (self.data) {
             .expected_token => |data| try writer.print("Expected {s} but found {s}", .{ data.expected.symbol(), data.got.symbol() }),
+            .invalid_return_outside_of_procedure => try writer.writeAll("Invalid return statement outside of procedure definition"),
+            .invalid_procedure_not_top_level => try writer.writeAll("Procedure definitions must be defined at the top-level"),
         }
         if (self.context) |ctx| {
             switch (ctx) {
@@ -625,17 +629,26 @@ pub fn parseScope(p: *Parser, is_top_level: bool) ParseError![]S {
             .t_number => try p.parseStatement(.t_number),
             .t_string => try p.parseStatement(.t_string),
             .t_return => blk: {
+                const value = try p.parseStatement(.t_return);
                 if (is_top_level) {
-                    @panic("Invalid return statement.");
+                    try p.fail(Error{
+                        .span = value.span,
+                        .data = .{ .invalid_return_outside_of_procedure = {} },
+                    });
                 }
-                break :blk try p.parseStatement(.t_return);
+                break :blk value;
             },
             .t_procedure => blk: {
                 if (!is_top_level) {
-                    @panic("Invalid procedure statement.");
+                    try p.fail(Error{
+                        // TODO: might want to test a better span for this
+                        .span = p.lex.span(),
+                        .data = .{ .invalid_procedure_not_top_level = {} },
+                    });
                 }
                 break :blk try p.parseStatement(.t_procedure);
             },
+            // TODO: proper RETURN prevention in these conditional blocks
             .t_if => try p.parseStatement(.t_if),
             .t_repeat => try p.parseStatement(.t_repeat),
             .t_rbrace => if (!is_top_level) break else std.debug.panic("Unsupported: {}\n", .{p.lex.token}),
