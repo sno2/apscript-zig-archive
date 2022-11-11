@@ -313,7 +313,7 @@ pub fn evalExpr(vm: *VM, value: E, exception: ExceptionRef) ?Value {
             .v_string_ref = vm.buffer[value.span.start + 1 .. value.span.end - 1],
         },
         // TODO: convert to 'inline' case once 'zig fmt' supports it
-        .e_bin_add, .e_bin_sub, .e_bin_mul, .e_bin_div => |data| {
+        .e_bin_add, .e_bin_sub, .e_bin_mul, .e_bin_div, .e_bin_mod => |data| {
             const n1 = switch (data.lhs.data) {
                 .e_array, .e_string, .e_true, .e_false => {
                     exception.* = Exception{
@@ -363,6 +363,21 @@ pub fn evalExpr(vm: *VM, value: E, exception: ExceptionRef) ?Value {
                 .e_bin_sub => nn1 - nn2,
                 .e_bin_mul => nn1 * nn2,
                 .e_bin_div => nn1 / nn2,
+                .e_bin_mod => blk: {
+                    if (nn2 == 0) {
+                        exception.* = Exception{
+                            .message = "Failed to apply modulus operator with 0 divisor.",
+                            .span = value.span,
+                        };
+                        return null;
+                    }
+
+                    if (nn2 < 0) {
+                        break :blk -@mod(nn1, -nn2);
+                    }
+
+                    break :blk @mod(nn1, nn2);
+                },
                 else => unreachable,
             });
         },

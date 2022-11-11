@@ -208,6 +208,17 @@ inline fn led(p: *Parser, lhs: E) ?E {
                 .data = .{ .e_bin_div = &value[0] },
             };
         },
+        .t_mod => {
+            p.adjustBinding();
+            p.lex.next();
+            const rhs = p.parseExpr();
+            var value = p.allocator.alloc(E.Data.BinaryOp, 1) catch unreachable;
+            value[0] = .{ .lhs = lhs, .rhs = rhs };
+            return E{
+                .span = .{ .start = lhs.span.start, .end = rhs.span.end },
+                .data = .{ .e_bin_mod = &value[0] },
+            };
+        },
         .t_eq => {
             p.adjustBinding();
             p.lex.next();
