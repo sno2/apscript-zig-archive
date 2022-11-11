@@ -48,17 +48,17 @@ RIP
 
 ### Accessing input from the console
 
-> Note: The interpreter always tries to coerce results from `INPUT` into numbers first.
+> Note: The interpreter always tries to coerce results from `INPUT()` into numbers first.
 > If that fails, then it returns a string.
 
 ```sql
 age <- INPUT("What is your age?")
-DISPLAY("You are ", age, "years old.")
+DISPLAY("You are", age, "years old and will be", age + 1, "next year!")
 ```
 
 ```bash
 What is your age? 23 [Enter]
-You are 23 years old.
+You are 23 years old and will be 24 next year!
 ```
 
 ## License
