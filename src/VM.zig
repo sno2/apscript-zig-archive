@@ -479,6 +479,23 @@ pub fn evalExpr(vm: *VM, value: E, exception: ExceptionRef) ?Value {
 
             return Value.fromBool(rhs);
         },
+        .e_bin_or => |data| {
+            const lhs = (vm.evalExpr(data.lhs, exception) orelse return null).toBool(exception) orelse {
+                exception.span = data.lhs.span;
+                return null;
+            };
+
+            if (lhs) {
+                return Value.fromBool(true);
+            }
+
+            const rhs = (vm.evalExpr(data.rhs, exception) orelse return null).toBool(exception) orelse {
+                exception.span = data.rhs.span;
+                return null;
+            };
+
+            return Value.fromBool(rhs);
+        },
         .e_fn_call => |d| {
             const ident = vm.buffer[d.name.start..d.name.end];
 

@@ -100,6 +100,7 @@ pub const E = struct {
             .e_bin_gte => "a greater than or equal to comparison",
             .e_bin_lte => "a less than or equal to comparison",
             .e_bin_and => "an and comparison",
+            .e_bin_or => "an or comparison",
 
             .e_unary_pos => "a positive expression",
             .e_unary_neg => "a negation expression",
@@ -127,6 +128,7 @@ pub const E = struct {
         e_bin_gte: *BinaryOp,
         e_bin_lte: *BinaryOp,
         e_bin_and: *BinaryOp,
+        e_bin_or: *BinaryOp,
 
         e_unary_pos: *UnaryOp,
         e_unary_neg: *UnaryOp,
