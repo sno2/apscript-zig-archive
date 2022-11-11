@@ -57,12 +57,27 @@ pub const Value = union(Tag) {
         return Value{ .v_bool = b };
     }
 
+    /// Converts a value to a number. On error, does not specify the span.
     pub fn toNumber(value: Value, exception: ExceptionRef) ?Value {
         return switch (value) {
             .v_number => value,
             else => {
                 exception.* = Exception{
                     .message = "Failed to convert to number.",
+                    .span = undefined,
+                };
+                return null;
+            },
+        };
+    }
+
+    /// Converts a value to a number. On error, does not specify the span.
+    pub fn asBool(value: Value, exception: ExceptionRef) ?bool {
+        return switch (value) {
+            .v_bool => |b| b,
+            else => {
+                exception.* = Exception{
+                    .message = "Failed to convert to a boolean.",
                     .span = undefined,
                 };
                 return null;
@@ -446,6 +461,23 @@ pub fn evalExpr(vm: *VM, value: E, exception: ExceptionRef) ?Value {
             };
 
             return Value.fromBool(lhs.v_number < rhs.v_number);
+        },
+        .e_bin_and => |data| {
+            const lhs = (vm.evalExpr(data.lhs, exception) orelse return null).asBool(exception) orelse {
+                exception.span = data.lhs.span;
+                return null;
+            };
+
+            if (!lhs) {
+                return Value.fromBool(false);
+            }
+
+            const rhs = (vm.evalExpr(data.rhs, exception) orelse return null).asBool(exception) orelse {
+                exception.span = data.rhs.span;
+                return null;
+            };
+
+            return Value.fromBool(rhs);
         },
         .e_fn_call => |d| {
             const ident = vm.buffer[d.name.start..d.name.end];

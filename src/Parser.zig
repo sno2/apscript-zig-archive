@@ -37,11 +37,11 @@ pub const Error = struct {
             const data: std.builtin.Type = @typeInfo(D);
 
             if (data == .EnumLiteral) {
-                if (std.meta.fieldIndex(E.Tag, @tagName(context))) |_| {
+                if (@hasField(E.Tag, @tagName(context))) {
                     return Context{ .expr = context };
                 }
 
-                if (std.meta.fieldIndex(S.Tag, @tagName(context))) |_| {
+                if (@hasField(S.Tag, @tagName(context))) {
                     return Context{ .stmt = context };
                 }
             }
@@ -62,7 +62,7 @@ pub const Error = struct {
             switch (ctx) {
                 .stmt => |tag| try writer.print(" when parsing {s}", .{S.symbol(tag)}),
                 .expr => |tag| try writer.print(" when parsing {s}", .{E.symbol(tag)}),
-                .custom => |s| try writer.print(" for {s}", .{s}),
+                .custom => |s| try writer.print(" when parsing {s}", .{s}),
             }
         }
         try writer.writeAll(".\n");
@@ -112,25 +112,34 @@ inline fn nud(p: *Parser) !E {
         .t_false => return p.parsePrimaryExpr(.e_false),
 
         .t_plus => {
-            const span = .{ .start = p.lex.start, .end = p.lex.offset };
+            const start = p.lex.start;
             p.lex.next();
             var value = p.allocator.alloc(E.Data.UnaryOp, 1) catch unreachable;
             value[0] = .{ .value = try p.parseExpr() };
             return E{
-                .span = span,
+                .span = .{ .start = start, .end = p.lex.start },
                 .data = .{ .e_unary_pos = &value[0] },
             };
         },
 
         .t_minus => {
-            const span = .{ .start = p.lex.start, .end = p.lex.offset };
+            const start = p.lex.start;
             p.lex.next();
             var value = p.allocator.alloc(E.Data.UnaryOp, 1) catch unreachable;
             value[0] = .{ .value = try p.parseExpr() };
             return E{
-                .span = span,
+                .span = .{ .start = start, .end = p.lex.start },
                 .data = .{ .e_unary_neg = &value[0] },
             };
+        },
+        .t_lparen => {
+            p.lex.next();
+
+            const value = try p.parseExpr();
+
+            try p.eat(.t_rparen, null);
+
+            return value;
         },
         else => |t| std.debug.panic("Unsupported: {}\n", .{t}),
     }
@@ -362,6 +371,17 @@ inline fn led(p: *Parser, lhs: E) !?E {
             return E{
                 .span = .{ .start = lhs.span.start, .end = rhs.span.end },
                 .data = .{ .e_bin_lte = &value[0] },
+            };
+        },
+        .t_and => {
+            p.adjustBinding();
+            p.lex.next();
+            const rhs = try p.parseExpr();
+            var value = p.allocator.alloc(E.Data.BinaryOp, 1) catch unreachable;
+            value[0] = .{ .lhs = lhs, .rhs = rhs };
+            return E{
+                .span = .{ .start = lhs.span.start, .end = rhs.span.end },
+                .data = .{ .e_bin_and = &value[0] },
             };
         },
         else => return null,
