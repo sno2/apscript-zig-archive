@@ -19,7 +19,7 @@ pub const Value = union(Tag) {
 
     fn format(self: Value, writer: anytype, vm: *VM) !void {
         switch (self) {
-            .v_bool => |b| try writer.writeAll(if (b) "true" else "false"),
+            .v_bool => |b| try writer.writeAll(if (b) "TRUE" else "FALSE"),
             .v_array => |arr| {
                 try writer.writeAll("[");
 
@@ -69,6 +69,13 @@ pub const Value = union(Tag) {
             },
         };
     }
+
+    pub inline fn isTrue(value: Value) bool {
+        return switch (value) {
+            .v_bool => |b| b,
+            else => false,
+        };
+    }
 };
 
 allocator: std.mem.Allocator,
@@ -81,9 +88,6 @@ pub const Builtin = struct {
     pub const Ref = std.meta.FnPtr(fn (*VM, []Value, ExceptionRef) ?Value);
     pub const FakeRef = std.meta.FnPtr(fn () void);
 
-    const max_len = "DISPLAY".len;
-    threadlocal var casing_buffer: [max_len]u8 = undefined;
-
     pub fn getName(ref: Builtin.Ref) []const u8 {
         return switch (ref) {
             random => "RANDOM",
@@ -91,6 +95,17 @@ pub const Builtin = struct {
             append => "APPEND",
             else => unreachable,
         };
+    }
+
+    fn assert(_: *VM, args: []Value, exception: ExceptionRef) ?Value {
+        if (args.len == 0 or !args[0].isTrue()) {
+            exception.* = Exception{
+                .message = "Expected argument to be true.",
+                .span = undefined,
+            };
+            return null;
+        }
+        return Value.fromFloat(0);
     }
 
     fn input(vm: *VM, args: []Value, _: ExceptionRef) ?Value {
@@ -249,6 +264,9 @@ pub fn init(allocator: std.mem.Allocator, buffer: []const u8) VM {
 
     state.putAssumeCapacityNoClobber("INPUT", Value{ .v_builtin_fn = @ptrCast(Builtin.FakeRef, Builtin.input) });
     state.putAssumeCapacityNoClobber("input", Value{ .v_builtin_fn = @ptrCast(Builtin.FakeRef, Builtin.input) });
+
+    state.putAssumeCapacityNoClobber("ASSERT", Value{ .v_builtin_fn = @ptrCast(Builtin.FakeRef, Builtin.assert) });
+    state.putAssumeCapacityNoClobber("assert", Value{ .v_builtin_fn = @ptrCast(Builtin.FakeRef, Builtin.assert) });
 
     var seed: u64 = 0;
     std.os.getrandom(std.mem.asBytes(&seed)) catch unreachable;
