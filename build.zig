@@ -1,6 +1,6 @@
 const std = @import("std");
 
-pub fn build(b: *std.build.Builder) void {
+pub fn build(b: *std.build.Builder) !void {
     // Standard target options allows the person running `zig build` to choose
     // what target to build for. Here we do not override the defaults, which
     // means any target is allowed, and the default is native. Other options
@@ -31,4 +31,17 @@ pub fn build(b: *std.build.Builder) void {
 
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&exe_tests.step);
+
+    var cwd = std.fs.cwd();
+    var tests_dir = try cwd.openIterableDir("tests", .{});
+    var iter = tests_dir.iterate();
+
+    while (try iter.next()) |entry| {
+        if (entry.kind != .File or std.mem.endsWith(u8, entry.name, ".out")) continue;
+
+        const cmd = exe.run();
+        cmd.step.dependOn(b.getInstallStep());
+        cmd.addArg(try std.fmt.allocPrint(b.allocator, "./tests/{s}", .{entry.name}));
+        test_step.dependOn(&cmd.step);
+    }
 }
