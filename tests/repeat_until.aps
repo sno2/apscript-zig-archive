@@ -1,0 +1,15 @@
+count <- 0
+
+REPEAT UNTIL (count = 10000) {
+	count <- count + 1
+}
+
+ASSERT(count = 10000)
+
+age <- 0
+
+REPEAT UNTIL (age = 0) {
+	age <- age + 1
+}
+
+ASSERT(age = 0)
