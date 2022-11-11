@@ -52,7 +52,13 @@ pub const S = struct {
         pub const If = struct {
             condition: E,
             scope: []S,
-            @"else": ?[]S,
+            else_ifs: []ElseIf = &.{},
+            @"else": ?[]S = null,
+
+            pub const ElseIf = struct {
+                condition: E,
+                scope: []S,
+            };
         };
 
         pub const RepeatN = struct {

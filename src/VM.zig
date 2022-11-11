@@ -63,7 +63,7 @@ pub const Value = union(Tag) {
             .v_number => value,
             else => {
                 exception.* = Exception{
-                    .message = "Failed to convert to number.",
+                    .message = "Failed to convert value to number.",
                     .span = undefined,
                 };
                 return null;
@@ -72,12 +72,12 @@ pub const Value = union(Tag) {
     }
 
     /// Converts a value to a number. On error, does not specify the span.
-    pub fn asBool(value: Value, exception: ExceptionRef) ?bool {
+    pub fn toBool(value: Value, exception: ExceptionRef) ?bool {
         return switch (value) {
             .v_bool => |b| b,
             else => {
                 exception.* = Exception{
-                    .message = "Failed to convert to a boolean.",
+                    .message = "Failed to convert value to a boolean.",
                     .span = undefined,
                 };
                 return null;
@@ -463,7 +463,7 @@ pub fn evalExpr(vm: *VM, value: E, exception: ExceptionRef) ?Value {
             return Value.fromBool(lhs.v_number < rhs.v_number);
         },
         .e_bin_and => |data| {
-            const lhs = (vm.evalExpr(data.lhs, exception) orelse return null).asBool(exception) orelse {
+            const lhs = (vm.evalExpr(data.lhs, exception) orelse return null).toBool(exception) orelse {
                 exception.span = data.lhs.span;
                 return null;
             };
@@ -472,7 +472,7 @@ pub fn evalExpr(vm: *VM, value: E, exception: ExceptionRef) ?Value {
                 return Value.fromBool(false);
             }
 
-            const rhs = (vm.evalExpr(data.rhs, exception) orelse return null).asBool(exception) orelse {
+            const rhs = (vm.evalExpr(data.rhs, exception) orelse return null).toBool(exception) orelse {
                 exception.span = data.rhs.span;
                 return null;
             };
@@ -599,7 +599,7 @@ pub fn evalScope(vm: *VM, scope: []S, exception: ExceptionRef) ?Value {
             .s_return => |e| {
                 return vm.evalExpr(e.value, exception);
             },
-            .s_if => |s| {
+            .s_if => |s| blk: {
                 const cond = vm.evalExpr(s.condition, exception) orelse return null;
 
                 const value = switch (cond) {
@@ -615,7 +615,25 @@ pub fn evalScope(vm: *VM, scope: []S, exception: ExceptionRef) ?Value {
 
                 if (value) {
                     _ = vm.evalScope(s.scope, exception) orelse return null;
-                } else if (s.@"else") |inner| {
+                    break :blk;
+                }
+
+                if (s.else_ifs.len != 0) {
+                    for (s.else_ifs) |else_itm| {
+                        const v_raw = vm.evalExpr(else_itm.condition, exception) orelse return null;
+                        const v = v_raw.toBool(exception) orelse {
+                            exception.span = else_itm.condition.span;
+                            return null;
+                        };
+
+                        if (v) {
+                            _ = vm.evalScope(else_itm.scope, exception) orelse return null;
+                            break :blk;
+                        }
+                    }
+                }
+
+                if (s.@"else") |inner| {
                     _ = vm.evalScope(inner, exception) orelse return null;
                 }
             },

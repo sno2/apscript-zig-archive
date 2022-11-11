@@ -497,16 +497,58 @@ pub fn parseStatement(p: *Parser, comptime start_token: T) !S {
             switch (p.lex.token) {
                 .t_else => {
                     p.lex.next();
-                    const data = p.allocator.alloc(S.Data.If, 1) catch unreachable;
 
-                    try p.eat(.t_lbrace, "an else statement");
+                    var else_ifs = std.ArrayListUnmanaged(S.Data.If.ElseIf){};
+                    var final_else: ?[]S = null;
+                    var end: u32 = 0;
 
-                    const inner = try p.parseScope(false);
+                    while (true) {
+                        switch (p.lex.token) {
+                            .t_if => {
+                                p.lex.next();
 
-                    const end = p.lex.offset;
-                    try p.eat(.t_rbrace, "an else statement");
+                                try p.eat(.t_lparen, "an else if statement");
 
-                    data[0] = .{ .condition = condition, .scope = scope, .@"else" = inner };
+                                const condition_inner = try p.parseExpr();
+
+                                try p.eat(.t_rparen, "an else if statement");
+                                try p.eat(.t_lbrace, "an else if statement");
+
+                                const scope_inner = try p.parseScope(false);
+
+                                end = p.lex.offset;
+                                try p.eat(.t_rbrace, "an else if statement");
+
+                                else_ifs.append(p.allocator, .{
+                                    .condition = condition_inner,
+                                    .scope = scope_inner,
+                                }) catch unreachable;
+
+                                if (p.lex.token != .t_else) break;
+                                p.lex.next();
+                            },
+                            .t_lbrace => {
+                                p.lex.next();
+
+                                const inner = try p.parseScope(false);
+
+                                end = p.lex.offset;
+                                try p.eat(.t_rbrace, "an else statement");
+
+                                final_else = inner;
+                                break;
+                            },
+                            else => break,
+                        }
+                    }
+
+                    var data = p.allocator.alloc(S.Data.If, 1) catch unreachable;
+                    data[0] = .{
+                        .condition = condition,
+                        .scope = scope,
+                        .else_ifs = else_ifs.toOwnedSlice(p.allocator),
+                        .@"else" = final_else,
+                    };
 
                     return S{
                         .span = .{ .start = start, .end = end },
@@ -598,7 +640,7 @@ pub fn parseScope(p: *Parser, is_top_level: bool) ParseError![]S {
             .t_repeat => try p.parseStatement(.t_repeat),
             .t_rbrace => if (!is_top_level) break else std.debug.panic("Unsupported: {}\n", .{p.lex.token}),
             .t_eof => break,
-            else => |t| std.debug.panic("Unsupported: {}\n", .{t}),
+            else => |t| std.debug.panic("Unsupported: {} at {d}\n", .{ t, p.lex.offset }),
         }) catch unreachable;
     }
 
