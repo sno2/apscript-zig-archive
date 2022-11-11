@@ -17,27 +17,52 @@ errors: std.ArrayListUnmanaged(Error) = .{},
 
 pub const Error = struct {
     span: Span,
-    data: union(enum) {
+    data: Data,
+    context: ?Context = null,
+
+    pub const Data = union(enum) {
         expected_token: struct {
             expected: T,
             got: T,
         },
-    },
-    context: union(enum) {
-        none: void,
+    };
+
+    pub const Context = union(enum) {
         expr: E.Tag,
         stmt: S.Tag,
-    } = .{ .none = {} },
+        custom: []const u8,
+
+        pub fn from(context: anytype) ?Context {
+            const D = @TypeOf(context);
+            const data: std.builtin.Type = @typeInfo(D);
+
+            if (data == .EnumLiteral) {
+                if (std.meta.fieldIndex(E.Tag, @tagName(context))) |_| {
+                    return Context{ .expr = context };
+                }
+
+                if (std.meta.fieldIndex(S.Tag, @tagName(context))) |_| {
+                    return Context{ .stmt = context };
+                }
+            }
+
+            if (data == .Pointer) {
+                return Context{ .custom = context };
+            }
+
+            return context;
+        }
+    };
 
     pub fn format(self: Error, writer: anytype) !void {
         switch (self.data) {
             .expected_token => |data| try writer.print("Expected {s} but found {s}", .{ data.expected.symbol(), data.got.symbol() }),
         }
-        if (self.context != .none) {
-            switch (self.context) {
-                .stmt => |tag| try writer.print(" for parsing {s}", .{S.symbol(tag)}),
-                .expr => |tag| try writer.print(" for parsing {s}", .{E.symbol(tag)}),
-                else => @panic("."),
+        if (self.context) |ctx| {
+            switch (ctx) {
+                .stmt => |tag| try writer.print(" when parsing {s}", .{S.symbol(tag)}),
+                .expr => |tag| try writer.print(" when parsing {s}", .{E.symbol(tag)}),
+                .custom => |s| try writer.print(" for {s}", .{s}),
             }
         }
         try writer.writeAll(".\n");
@@ -46,7 +71,25 @@ pub const Error = struct {
 
 const ParseError = error{ParseError};
 
-pub fn fail(p: *Parser, e: Error) !void {
+fn eat(p: *Parser, token: T, context: anytype) !void {
+    if (p.lex.token != token) {
+        try p.fail(Error{
+            .span = p.lex.span(),
+            .data = .{ .expected_token = .{ .expected = token, .got = p.lex.token } },
+            .context = Error.Context.from(context),
+        });
+    }
+    p.lex.next();
+}
+
+inline fn eatSpan(p: *Parser, token: T, context: anytype) !Span {
+    const sp = p.lex.span();
+    try p.eat(token, context);
+    return sp;
+}
+
+fn fail(p: *Parser, e: Error) !void {
+    @setCold(true);
     p.errors.append(p.allocator, e) catch unreachable;
     return error.ParseError;
 }
@@ -114,14 +157,7 @@ inline fn parseFnCallBody(p: *Parser) ![]E {
         }
     }
 
-    if (p.lex.token != .t_rparen) {
-        try p.fail(.{
-            .span = p.lex.span(),
-            .data = .{ .expected_token = .{ .expected = .t_rparen, .got = p.lex.token } },
-            .context = .{ .expr = .e_fn_call },
-        });
-    }
-    p.lex.next();
+    try p.eat(.t_rparen, Error.Context{ .expr = .e_fn_call });
 
     return arguments.toOwnedSlice(p.allocator);
 }
@@ -389,16 +425,9 @@ pub fn parseStatement(p: *Parser, comptime start_token: T) !S {
             const start = p.lex.start;
             p.lex.next();
 
-            const name = switch (p.lex.token) {
-                .t_ident => p.lex.span(),
-                else => @panic("Expected procedure name."),
-            };
-            p.lex.next();
+            const name = try p.eatSpan(.t_ident, .s_procedure);
 
-            switch (p.lex.token) {
-                .t_lparen => p.lex.next(),
-                else => @panic("Expected procedure arguments start."),
-            }
+            try p.eat(.t_lparen, .s_procedure);
 
             var arguments = std.ArrayListUnmanaged(Span){};
 
@@ -414,22 +443,12 @@ pub fn parseStatement(p: *Parser, comptime start_token: T) !S {
                 }
             }
 
-            if (p.lex.token != .t_rparen) {
-                @panic("Expected closing parenthesis to close the procedure arguments.");
-            }
-            p.lex.next();
-
-            if (p.lex.token != .t_lbrace) {
-                @panic("Expected an opening curly brace to start the procedure body.");
-            }
-            p.lex.next();
+            try p.eat(.t_rparen, .s_procedure);
+            try p.eat(.t_lbrace, .s_procedure);
 
             const scope = try p.parseScope(false);
 
-            if (p.lex.token != .t_rbrace) {
-                @panic("Expected a clsoing curly brace to end the procedure body.");
-            }
-            p.lex.next();
+            try p.eat(.t_rbrace, .s_procedure);
 
             const data = p.allocator.alloc(S.Data.Procedure, 1) catch unreachable;
             data[0] = .{ .name = name, .arguments = arguments.toOwnedSlice(p.allocator), .scope = scope };
@@ -443,42 +462,30 @@ pub fn parseStatement(p: *Parser, comptime start_token: T) !S {
             const start = p.lex.start;
             p.lex.next();
 
-            if (p.lex.token != .t_lparen) {
-                @panic("Expected an opening parenthesis for the if statement condition.");
-            }
-            p.lex.next();
+            try p.eat(.t_lparen, .s_if);
 
             const condition = try p.parseExpr();
 
-            if (p.lex.token != .t_rparen) {
-                @panic("Expected a closing parenthesis for the if statement condition.");
-            }
-            p.lex.next();
-
-            if (p.lex.token != .t_lbrace) {
-                @panic("Expected an opening curly brace for the if statement body.");
-            }
-            p.lex.next();
+            try p.eat(.t_rparen, .s_if);
+            try p.eat(.t_lbrace, .s_if);
 
             const scope = try p.parseScope(false);
 
-            if (p.lex.token != .t_rbrace) {
-                @panic("Expected a closing curly brace for the if statement body.");
-            }
             const end0 = p.lex.offset;
-            p.lex.next();
+            try p.eat(.t_rbrace, .s_if);
 
             switch (p.lex.token) {
                 .t_else => {
                     p.lex.next();
                     const data = p.allocator.alloc(S.Data.If, 1) catch unreachable;
 
-                    if (p.lex.token != .t_lbrace) @panic(".");
-                    p.lex.next();
+                    try p.eat(.t_lbrace, "an else statement");
+
                     const inner = try p.parseScope(false);
-                    if (p.lex.token != .t_rbrace) @panic(".");
+
                     const end = p.lex.offset;
-                    p.lex.next();
+                    try p.eat(.t_rbrace, "an else statement");
+
                     data[0] = .{ .condition = condition, .scope = scope, .@"else" = inner };
 
                     return S{
@@ -504,22 +511,17 @@ pub fn parseStatement(p: *Parser, comptime start_token: T) !S {
             if (p.lex.token == .t_until) {
                 p.lex.next();
 
-                if (p.lex.token != .t_lparen) @panic(".");
-                p.lex.next();
+                try p.eat(.t_lparen, .s_repeat_until);
 
                 const condition = try p.parseExpr();
 
-                if (p.lex.token != .t_rparen) @panic(".");
-                p.lex.next();
-
-                if (p.lex.token != .t_lbrace) @panic(".");
-                p.lex.next();
+                try p.eat(.t_rparen, .s_repeat_until);
+                try p.eat(.t_lbrace, .s_repeat_until);
 
                 const scope = try p.parseScope(false);
 
-                if (p.lex.token != .t_rbrace) @panic(".");
                 const end = p.lex.offset;
-                p.lex.next();
+                try p.eat(.t_rbrace, .s_repeat_until);
 
                 const data = p.allocator.alloc(S.Data.RepeatUntil, 1) catch unreachable;
                 data[0] = .{ .condition = condition, .scope = scope };
@@ -532,17 +534,13 @@ pub fn parseStatement(p: *Parser, comptime start_token: T) !S {
 
             const count = try p.parseExpr();
 
-            if (p.lex.token != .t_times) @panic(".");
-            p.lex.next();
-
-            if (p.lex.token != .t_lbrace) @panic(".");
-            p.lex.next();
+            try p.eat(.t_times, .s_repeat_n);
+            try p.eat(.t_lbrace, .s_repeat_n);
 
             const scope = try p.parseScope(false);
 
-            if (p.lex.token != .t_rbrace) @panic(".");
             const end = p.lex.offset;
-            p.lex.next();
+            try p.eat(.t_rbrace, .s_repeat_n);
 
             const data = p.allocator.alloc(S.Data.RepeatN, 1) catch unreachable;
             data[0] = .{ .count = count, .scope = scope };
