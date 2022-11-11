@@ -1,8 +1,14 @@
-on: push
+on:
+  push:
+    paths:
+      - "build.zig"
+      - "tests/**/*"
+      - "src/**/*"
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v3
       - name: Setup Zig
         uses: goto-bus-stop/setup-zig@v2.0.1
       - name: Run tests
