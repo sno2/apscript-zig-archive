@@ -16,7 +16,10 @@ pub fn main() !void {
     };
 
     const path_full = std.fs.path.resolve(allocator, &.{path}) catch unreachable;
-    const file = std.fs.openFileAbsolute(path_full, .{}) catch |e| return std.log.err("Failed to open file: {}", .{e});
+    const file = std.fs.openFileAbsolute(path_full, .{}) catch |e| {
+        std.log.err("Failed to open file: {}", .{e});
+        std.process.exit(1);
+    };
     const input = file.readToEndAlloc(allocator, 4096) catch unreachable;
 
     var p = Parser.init(allocator, input);
@@ -29,5 +32,6 @@ pub fn main() !void {
     _ = vm.evalScope(scope, &exception[0]) orelse {
         std.debug.print("error: {s}\n", .{exception[0].message});
         std.debug.print("    -> {s}\n", .{vm.buffer[exception[0].span.start..exception[0].span.end]});
+        std.process.exit(1);
     };
 }
